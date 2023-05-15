@@ -1,0 +1,142 @@
+version: '3.4'
+
+services:
+  gateway:
+    image: gateway:latest
+    depends_on:
+      - postgres_image
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: Gateway/Dockerfile
+    restart: on-failure
+    ports:
+      - "80:80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=gatewayDb;username=gateway;password=gateway
+      - RabbitMQHost=rabbitmq
+      - HttpOrder=http://order/
+      - HttpScooterController=http://scooter-controller/
+      - HttpFreeScooter=http://free-scooter/
+      - RabbitMQPort=5672
+      - Authority=http://identity-api/
+
+  password:
+    image: password:latest
+    depends_on:
+      - postgres_image
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: PasswordGenerator/Dockerfile
+    restart: on-failure
+    ports:
+      - "80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=passwordDb;username=password;password=password
+      - RabbitMQHost=rabbitmq
+      - RabbitMQPort=5672
+      - MinutesToExpirePassword=10
+      - CodeSendPath=https://api.telefon-ip.ru/api/v1/authcalls/
+      - CodeSendToken=18b3b52f-f499-49b6-aaba-62c2843a4f4b
+
+  identity-api:
+    image: identity-api:latest
+    depends_on:
+      - postgres_image
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: Identity/Dockerfile
+    restart: on-failure
+    ports:
+      - "8080:80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=identityDb;username=identity;password=identity
+      - RabbitMQHost=rabbitmq
+      - RabbitMQPort=5672
+      - Issuer=http://identity-api/
+
+  free-scooter:
+    image: free-scooter:latest
+    depends_on:
+      - postgres_image
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: FreeScooters/Dockerfile
+    restart: on-failure
+    ports:
+      - "80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=freeScootersDb;username=free_scooters;password=free_scooters
+      - RabbitMQHost=rabbitmq
+      - RabbitMQPort=5672
+
+  scooter-controller:
+    image: scooter-controller:latest
+    depends_on:
+      - postgres_image
+      - rabbitmq
+    build:
+      context: .
+      dockerfile: Scooter-Controller/Dockerfile
+    restart: on-failure
+    ports:
+      - "80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=scooterControllerDb;username=scooter_controller;password=scooter_controller
+      - RabbitMQHost=rabbitmq
+      - RabbitMQPort=5672
+
+    
+  order:
+    image: order:latest
+    depends_on:
+      - postgres_image
+    build:
+      context: .
+      dockerfile: Order/Dockerfile
+    restart: on-failure
+    ports:
+      - "80"
+    environment:
+      - DB_CONNECTION_STRING=host=postgres_image;port=5432;database=orderDb;username=order;password=order
+      - HttpScooterManager=http://scooter-controller/
+      - HttpEmailSender=http://email-sender/TODO
+      - HttpPaymentService=http://payment-service/TODO
+      - MoneyToHold=100
+
+  postgres_image:
+    image: postgres:latest
+    ports:
+      - "5432:5432"
+    restart: always
+    volumes:
+      - db_volume:/var/lib/postgresql/data
+      # the sql script to create databases and users
+      - ./docker_postgres_init.sql:/docker-entrypoint-initdb.d/docker_postgres_init.sql
+    environment:
+      - POSTGRES_USER=root
+      - POSTGRES_PASSWORD=root
+
+  rabbitmq:
+    # login guest:guest
+    image: rabbitmq:3-management-alpine
+    hostname: rabbitmq
+    container_name: 'rabbitmq'
+    tty: true
+    ports:
+      - 5672:5672
+      - 15672:15672
+    volumes:
+      - ~/.docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/.docker-conf/rabbitmq/log/:/var/log/rabbitmq
+    healthcheck:
+      test: [ "CMD", "nc", "-z", "localhost", "5672" ]
+      interval: 5s
+      timeout: 15s
+      retries: 1
+
+volumes:
+  db_volume:
